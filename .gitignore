@@ -1,6 +1,14 @@
 docs/
+prototipo/
 .venv/
 
-# CSV completo descomprimido (pesa ~400 MB, se sube solo el .rar)
+# Archivos de datos pesados locales (>99 MB, se conserva solo el .rar y la muestra)
 datos/games\[original\].csv
+datos/games\[original\].json
+datos/games_muestra_max.csv
 __pycache__/
+
+# Frontend Vite + React + TypeScript
+node_modules/
+dist/
+.vite/

@@ -1,0 +1,10 @@
+/* Estilos mínimos globales; el sistema de diseño vive en src/theme/theme.ts (Material UI) */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+#root {
+  min-height: 100vh;
+}
