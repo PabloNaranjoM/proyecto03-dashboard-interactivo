@@ -1,2 +1,6 @@
 docs/
 .venv/
+
+# CSV completo descomprimido (pesa ~400 MB, se sube solo el .rar)
+datos/games\[original\].csv
+__pycache__/
