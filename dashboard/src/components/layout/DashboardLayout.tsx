@@ -2,8 +2,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   Dialog,
   DialogActions,
@@ -16,7 +14,10 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import {
-  GENRE_LABELS,
+  BASE_GENRE_OWNERS,
+  BASE_SCATTER_POINTS,
+  BASE_YEARLY_RELEASES,
+  DEFAULT_PAGE_SIZE,
   GENRE_OPTIONS,
   MAX_YEAR,
   MIN_YEAR,
@@ -30,10 +31,17 @@ import type {
   YearRange,
 } from '../../types/dashboard';
 import {
+  computeGenreOwners,
+  computeKpiCards,
   exportGamesToCsv,
+  filterScatterPoints,
   filterSteamGames,
+  filterYearlyReleases,
+  paginateGames,
 } from '../../utils/dashboardMetrics';
+import { ChartsSection } from '../charts/ChartsSection';
 import { FilterBar } from '../filters/FilterBar';
+import { GamesTable } from '../table/GamesTable';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 
@@ -43,41 +51,84 @@ export function DashboardLayout() {
     start: MIN_YEAR,
     end: MAX_YEAR,
   });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<NavSectionId>('dashboard');
   const [activeModal, setActiveModal] = useState<SystemModalId>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
-  const filteredGames = useMemo(
+  const globallyFilteredGames = useMemo(
     () => filterSteamGames(MOCK_STEAM_GAMES, selectedGenre, yearRange, ''),
     [selectedGenre, yearRange],
   );
 
-  const handleSelectSection = (section: NavSectionId) => {
-    setActiveSection(section);
-    const targetId = `section-${section}`;
-    const element = document.getElementById(targetId);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+  const tableFilteredGames = useMemo(
+    () => filterSteamGames(MOCK_STEAM_GAMES, selectedGenre, yearRange, searchTerm),
+    [selectedGenre, yearRange, searchTerm],
+  );
+
+  const { items: visibleGames, totalPages, safePage } = useMemo(
+    () => paginateGames(tableFilteredGames, currentPage, DEFAULT_PAGE_SIZE),
+    [tableFilteredGames, currentPage],
+  );
+
+  const kpiItems = useMemo(
+    () => computeKpiCards(selectedGenre, yearRange, globallyFilteredGames),
+    [selectedGenre, yearRange, globallyFilteredGames],
+  );
+
+  const lineData = useMemo(
+    () => filterYearlyReleases(BASE_YEARLY_RELEASES, selectedGenre, yearRange),
+    [selectedGenre, yearRange],
+  );
+
+  const scatterData = useMemo(
+    () => filterScatterPoints(BASE_SCATTER_POINTS, selectedGenre, yearRange),
+    [selectedGenre, yearRange],
+  );
+
+  const genreData = useMemo(
+    () => computeGenreOwners(BASE_GENRE_OWNERS, yearRange),
+    [yearRange],
+  );
+
+  const handleGenreChange = (genre: GenreFilter) => {
+    setSelectedGenre(genre);
+    setCurrentPage(1);
+  };
+
+  const handleYearChange = (range: YearRange) => {
+    setYearRange(range);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (term: string) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
   };
 
   const handleResetFilters = () => {
     setSelectedGenre('Todos');
     setYearRange({ start: MIN_YEAR, end: MAX_YEAR });
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const handleSelectSection = (section: NavSectionId) => {
+    setActiveSection(section);
+    const element = document.getElementById(`section-${section}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   const handleExport = () => {
-    exportGamesToCsv(filteredGames);
+    exportGamesToCsv(tableFilteredGames);
     setExportNotice(
-      `Informe CSV generado con ${filteredGames.length} juegos filtrados.`,
+      `Informe CSV generado con ${tableFilteredGames.length} juegos visibles.`,
     );
   };
-
-  const activeGenreLabel =
-    selectedGenre === 'Todos'
-      ? 'Todos los géneros'
-      : (GENRE_LABELS[selectedGenre] ?? selectedGenre);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -115,36 +166,32 @@ export function DashboardLayout() {
             yearRange={yearRange}
             minYear={MIN_YEAR}
             maxYear={MAX_YEAR}
-            onGenreChange={setSelectedGenre}
-            onYearChange={setYearRange}
+            onGenreChange={handleGenreChange}
+            onYearChange={handleYearChange}
             onReset={handleResetFilters}
           />
 
-          <Card id="section-trends">
-            <CardContent sx={{ p: 2.5 }}>
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1.5}
-                sx={{
-                  justifyContent: 'space-between',
-                  alignItems: { xs: 'flex-start', sm: 'center' },
-                }}
-              >
-                <Box>
-                  <Typography variant="overline">CONTEXTO DE CONSULTA ACTIVO</Typography>
-                  <Typography variant="h6">
-                    {activeGenreLabel} · {yearRange.start}–{yearRange.end}
-                  </Typography>
-                </Box>
-                <Chip
-                  id="section-library"
-                  label={`${filteredGames.length} de ${MOCK_STEAM_GAMES.length} juegos en muestra`}
-                  size="small"
-                  sx={{ bgcolor: '#F3F4F6', color: 'text.primary' }}
-                />
-              </Stack>
-            </CardContent>
-          </Card>
+          <ChartsSection
+            kpiItems={kpiItems}
+            lineData={lineData}
+            scatterData={scatterData}
+            genreData={genreData}
+            yearRange={yearRange}
+            selectedGenre={selectedGenre}
+            onSelectGenre={handleGenreChange}
+          />
+
+          <Box id="section-library" sx={{ scrollMarginTop: 24 }}>
+            <GamesTable
+              games={visibleGames}
+              totalVisibleText={`${tableFilteredGames.length} de 125k visibles`}
+              searchTerm={searchTerm}
+              onSearchChange={handleSearchChange}
+              currentPage={safePage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+          </Box>
         </Stack>
       </Box>
 
