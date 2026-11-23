@@ -1,6 +1,20 @@
 # proyecto03-dashboard-interactivo
 Dashboard web interactivo desarrollado con React y TypeScript para el monitoreo de métricas en tiempo real, aplicando buenas prácticas de programación y herramientas modernas del ecosistema frontend.
 
+## Cómo ejecutar el dashboard
+
+Se necesita Node.js 20.19 o superior.
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Luego abrir en el navegador la dirección que aparece en la terminal (normalmente http://localhost:5173).
+
+Para generar la versión de producción se usa `npm run build`, y con `npm run preview` se puede revisar ese build.
+
 ## Transformación de datos CSV a JSON
 
 El conjunto de datos es el [Steam Games Dataset](https://www.kaggle.com/datasets/fronkongames/steam-games-dataset).
