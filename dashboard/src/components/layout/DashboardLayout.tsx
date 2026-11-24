@@ -2,28 +2,30 @@ import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  Grid,
+  LinearProgress,
+  Skeleton,
   Snackbar,
   Stack,
   Typography,
 } from '@mui/material';
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import { useMemo, useState } from 'react';
 import {
-  BASE_GENRE_OWNERS,
-  BASE_SCATTER_POINTS,
-  BASE_YEARLY_RELEASES,
+  DEFAULT_MAX_YEAR,
+  DEFAULT_MIN_YEAR,
   DEFAULT_PAGE_SIZE,
   GENRE_OPTIONS,
-  MAX_YEAR,
-  MIN_YEAR,
-  MOCK_STEAM_GAMES,
-  TOTAL_INDEXED_GAMES,
-} from '../../data/mockSteamData';
+} from '../../constants/dashboardConfig';
+import { useSteamGames } from '../../hooks/useSteamGames';
 import type {
   GenreFilter,
   NavSectionId,
@@ -33,10 +35,11 @@ import type {
 import {
   computeGenreOwners,
   computeKpiCards,
+  computeScatterPoints,
+  computeYearBounds,
+  computeYearlyReleases,
   exportGamesToCsv,
-  filterScatterPoints,
   filterSteamGames,
-  filterYearlyReleases,
   paginateGames,
 } from '../../utils/dashboardMetrics';
 import { ChartsSection } from '../charts/ChartsSection';
@@ -46,10 +49,12 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 
 export function DashboardLayout() {
+  const { games, loading, error, reload } = useSteamGames();
+
   const [selectedGenre, setSelectedGenre] = useState<GenreFilter>('Todos');
   const [yearRange, setYearRange] = useState<YearRange>({
-    start: MIN_YEAR,
-    end: MAX_YEAR,
+    start: DEFAULT_MIN_YEAR,
+    end: DEFAULT_MAX_YEAR,
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -58,14 +63,27 @@ export function DashboardLayout() {
   const [activeModal, setActiveModal] = useState<SystemModalId>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
+  const yearBounds = useMemo(() => computeYearBounds(games), [games]);
+
+  const effectiveYearRange = useMemo<YearRange>(() => {
+    const start = Math.max(yearBounds.min, Math.min(yearRange.start, yearBounds.max - 1));
+    const end = Math.min(yearBounds.max, Math.max(yearRange.end, start + 1));
+    return { start, end };
+  }, [yearBounds, yearRange]);
+
+  const gamesInYearRange = useMemo(
+    () => filterSteamGames(games, 'Todos', effectiveYearRange, ''),
+    [games, effectiveYearRange],
+  );
+
   const globallyFilteredGames = useMemo(
-    () => filterSteamGames(MOCK_STEAM_GAMES, selectedGenre, yearRange, ''),
-    [selectedGenre, yearRange],
+    () => filterSteamGames(games, selectedGenre, effectiveYearRange, ''),
+    [games, selectedGenre, effectiveYearRange],
   );
 
   const tableFilteredGames = useMemo(
-    () => filterSteamGames(MOCK_STEAM_GAMES, selectedGenre, yearRange, searchTerm),
-    [selectedGenre, yearRange, searchTerm],
+    () => filterSteamGames(games, selectedGenre, effectiveYearRange, searchTerm),
+    [games, selectedGenre, effectiveYearRange, searchTerm],
   );
 
   const { items: visibleGames, totalPages, safePage } = useMemo(
@@ -74,23 +92,23 @@ export function DashboardLayout() {
   );
 
   const kpiItems = useMemo(
-    () => computeKpiCards(selectedGenre, yearRange, globallyFilteredGames),
-    [selectedGenre, yearRange, globallyFilteredGames],
+    () => computeKpiCards(globallyFilteredGames),
+    [globallyFilteredGames],
   );
 
   const lineData = useMemo(
-    () => filterYearlyReleases(BASE_YEARLY_RELEASES, selectedGenre, yearRange),
-    [selectedGenre, yearRange],
+    () => computeYearlyReleases(globallyFilteredGames),
+    [globallyFilteredGames],
   );
 
   const scatterData = useMemo(
-    () => filterScatterPoints(BASE_SCATTER_POINTS, selectedGenre, yearRange),
-    [selectedGenre, yearRange],
+    () => computeScatterPoints(globallyFilteredGames),
+    [globallyFilteredGames],
   );
 
   const genreData = useMemo(
-    () => computeGenreOwners(BASE_GENRE_OWNERS, yearRange),
-    [yearRange],
+    () => computeGenreOwners(gamesInYearRange),
+    [gamesInYearRange],
   );
 
   const handleGenreChange = (genre: GenreFilter) => {
@@ -110,7 +128,7 @@ export function DashboardLayout() {
 
   const handleResetFilters = () => {
     setSelectedGenre('Todos');
-    setYearRange({ start: MIN_YEAR, end: MAX_YEAR });
+    setYearRange({ start: yearBounds.min, end: yearBounds.max });
     setSearchTerm('');
     setCurrentPage(1);
   };
@@ -126,7 +144,7 @@ export function DashboardLayout() {
   const handleExport = () => {
     exportGamesToCsv(tableFilteredGames);
     setExportNotice(
-      `Informe CSV generado con ${tableFilteredGames.length} juegos visibles.`,
+      `Informe CSV generado con ${tableFilteredGames.length.toLocaleString('es-ES')} juegos visibles.`,
     );
   };
 
@@ -134,7 +152,7 @@ export function DashboardLayout() {
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
       <Sidebar
         activeSection={activeSection}
-        indexedCount={TOTAL_INDEXED_GAMES}
+        indexedCount={games.length}
         isOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
         onSelectSection={handleSelectSection}
@@ -155,7 +173,7 @@ export function DashboardLayout() {
           <Header
             subtitle="INTELIGENCIA DE MERCADO // EN VIVO"
             title="Centro de mando de Steam"
-            totalGames={TOTAL_INDEXED_GAMES}
+            totalGames={games.length}
             onExport={handleExport}
             onToggleMenu={() => setMobileMenuOpen((open) => !open)}
           />
@@ -163,35 +181,122 @@ export function DashboardLayout() {
           <FilterBar
             genresList={GENRE_OPTIONS}
             selectedGenre={selectedGenre}
-            yearRange={yearRange}
-            minYear={MIN_YEAR}
-            maxYear={MAX_YEAR}
+            yearRange={effectiveYearRange}
+            minYear={yearBounds.min}
+            maxYear={yearBounds.max}
             onGenreChange={handleGenreChange}
             onYearChange={handleYearChange}
             onReset={handleResetFilters}
           />
 
-          <ChartsSection
-            kpiItems={kpiItems}
-            lineData={lineData}
-            scatterData={scatterData}
-            genreData={genreData}
-            yearRange={yearRange}
-            selectedGenre={selectedGenre}
-            onSelectGenre={handleGenreChange}
-          />
+          {error && (
+            <Alert
+              severity="error"
+              variant="outlined"
+              action={
+                <Button
+                  color="error"
+                  size="small"
+                  startIcon={<RefreshRoundedIcon fontSize="small" />}
+                  onClick={reload}
+                >
+                  Reintentar
+                </Button>
+              }
+              sx={{ bgcolor: '#FFFFFF', borderRadius: 3 }}
+            >
+              Error al recuperar los datos desde Firebase Realtime Database: {error}
+            </Alert>
+          )}
 
-          <Box id="section-library" sx={{ scrollMarginTop: 24 }}>
-            <GamesTable
-              games={visibleGames}
-              totalVisibleText={`${tableFilteredGames.length} de 125k visibles`}
-              searchTerm={searchTerm}
-              onSearchChange={handleSearchChange}
-              currentPage={safePage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-            />
-          </Box>
+          {loading ? (
+            <Stack spacing={2.5} aria-busy="true" aria-label="Cargando datos desde Firebase">
+              <Card>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Stack spacing={1}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Conectando con Firebase Realtime Database...
+                    </Typography>
+                    <LinearProgress color="primary" sx={{ borderRadius: 99 }} />
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              <Grid container spacing={2.5}>
+                <Grid size={{ xs: 12, lg: 4 }}>
+                  <Stack spacing={2}>
+                    {[0, 1, 2].map((index) => (
+                      <Card key={index}>
+                        <CardContent sx={{ p: 2.25 }}>
+                          <Skeleton variant="text" width="55%" height={20} />
+                          <Skeleton variant="text" width="45%" height={42} sx={{ mt: 1 }} />
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
+                </Grid>
+
+                <Grid size={{ xs: 12, lg: 8 }}>
+                  <Card sx={{ height: '100%' }}>
+                    <CardContent sx={{ p: 2.5 }}>
+                      <Skeleton variant="text" width="35%" height={18} />
+                      <Skeleton variant="text" width="50%" height={28} sx={{ mb: 2 }} />
+                      <Skeleton variant="rounded" height={230} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid size={{ xs: 12, lg: 6 }}>
+                  <Card>
+                    <CardContent sx={{ p: 2.5 }}>
+                      <Skeleton variant="text" width="45%" height={26} sx={{ mb: 2 }} />
+                      <Skeleton variant="rounded" height={220} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid size={{ xs: 12, lg: 6 }}>
+                  <Card>
+                    <CardContent sx={{ p: 2.5 }}>
+                      <Skeleton variant="text" width="45%" height={26} sx={{ mb: 2 }} />
+                      <Skeleton variant="rounded" height={220} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Card>
+                <CardContent sx={{ p: 2.5 }}>
+                  <Skeleton variant="text" width="30%" height={28} sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" height={210} />
+                </CardContent>
+              </Card>
+            </Stack>
+          ) : (
+            <>
+              <ChartsSection
+                kpiItems={kpiItems}
+                lineData={lineData}
+                scatterData={scatterData}
+                genreData={genreData}
+                yearRange={effectiveYearRange}
+                selectedGenre={selectedGenre}
+                onSelectGenre={handleGenreChange}
+              />
+
+              <Box id="section-library" sx={{ scrollMarginTop: 24 }}>
+                <GamesTable
+                  games={visibleGames}
+                  totalVisibleText={`${tableFilteredGames.length.toLocaleString('es-ES')} de ${games.length.toLocaleString('es-ES')} visibles`}
+                  searchTerm={searchTerm}
+                  onSearchChange={handleSearchChange}
+                  currentPage={safePage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                />
+              </Box>
+            </>
+          )}
         </Stack>
       </Box>
 
@@ -206,8 +311,9 @@ export function DashboardLayout() {
         <DialogContent dividers>
           <Stack spacing={2}>
             <Typography variant="body2" color="text.secondary">
-              El panel analiza el conjunto de datos <strong>Steam Games Dataset</strong>{' '}
-              (Kaggle / Fronkon Games), consolidado en 125.855 videojuegos publicados.
+              El panel consulta en vivo el conjunto <strong>Steam Games Dataset</strong>{' '}
+              almacenado en <strong>Firebase Realtime Database</strong> (repositorio del
+              proyecto <code>data-repository-p03</code>).
             </Typography>
             <Divider />
             <Box>
@@ -216,7 +322,7 @@ export function DashboardLayout() {
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 <strong>Release date</strong> (formato ISO <code>YYYY-MM-DD</code>):
-                permite agrupar lanzamientos anuales entre 1997 y 2026.
+                permite agrupar lanzamientos anuales dentro del rango activo.
               </Typography>
             </Box>
             <Box>
@@ -265,17 +371,22 @@ export function DashboardLayout() {
               <Typography variant="body2" color="text.secondary">
                 Fuente de datos
               </Typography>
-              <Chip label="Muestra local validada" size="small" />
+              <Chip
+                label="Firebase Realtime DB"
+                size="small"
+                color="success"
+                variant="outlined"
+              />
             </Stack>
             <Stack
               direction="row"
               sx={{ justifyContent: 'space-between', alignItems: 'center' }}
             >
               <Typography variant="body2" color="text.secondary">
-                Registros indexados
+                Registros cargados
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {TOTAL_INDEXED_GAMES.toLocaleString('es-ES')}
+                {games.length.toLocaleString('es-ES')}
               </Typography>
             </Stack>
             <Stack
@@ -286,7 +397,7 @@ export function DashboardLayout() {
                 Ventana temporal
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {yearRange.start} – {yearRange.end}
+                {effectiveYearRange.start} – {effectiveYearRange.end}
               </Typography>
             </Stack>
           </Stack>

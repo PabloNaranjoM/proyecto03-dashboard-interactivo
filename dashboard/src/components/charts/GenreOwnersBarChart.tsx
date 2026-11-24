@@ -2,6 +2,7 @@ import { Box, ButtonBase, Chip, Stack, Typography } from '@mui/material';
 import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import type { GenreOwnersBarChartProps } from '../../types/dashboard';
+import { formatCompactOwners } from '../../utils/dashboardMetrics';
 
 export function GenreOwnersBarChart({
   data,
@@ -133,16 +134,17 @@ export function GenreOwnersBarChart({
               <Typography
                 variant="body2"
                 sx={{
-                  width: 38,
+                  width: 54,
                   flexShrink: 0,
                   textAlign: 'right',
                   fontSize: '0.82rem',
                   fontWeight: 700,
                   fontVariantNumeric: 'tabular-nums',
+                  whiteSpace: 'nowrap',
                   color: isSelected ? 'primary.dark' : 'text.primary',
                 }}
               >
-                {item.ownersK}k
+                {formatCompactOwners(item.ownersK)}
               </Typography>
             </ButtonBase>
           );
@@ -156,7 +158,7 @@ export function GenreOwnersBarChart({
             justifyContent: 'space-between',
             alignItems: 'center',
             pl: { xs: '92px', sm: '114px' },
-            pr: '54px',
+            pr: '68px',
             pt: 1.25,
             borderTop: '1px solid #F1F3F5',
           }}
@@ -168,7 +170,7 @@ export function GenreOwnersBarChart({
             Volumen
           </Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
-            {maxOwnersK}k
+            {formatCompactOwners(maxOwnersK)}
           </Typography>
         </Box>
 

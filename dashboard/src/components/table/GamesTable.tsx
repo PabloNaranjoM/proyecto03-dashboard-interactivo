@@ -31,6 +31,33 @@ const DESKTOP_ONLY_CELL_SX = {
   display: { xs: 'none', md: 'table-cell' },
 } as const;
 
+type PaginationItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function buildPaginationItems(currentPage: number, totalPages: number): PaginationItem[] {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const items: PaginationItem[] = [1];
+  const windowStart = Math.max(2, currentPage - 1);
+  const windowEnd = Math.min(totalPages - 1, currentPage + 1);
+
+  if (windowStart > 2) {
+    items.push('ellipsis-start');
+  }
+
+  for (let page = windowStart; page <= windowEnd; page += 1) {
+    items.push(page);
+  }
+
+  if (windowEnd < totalPages - 1) {
+    items.push('ellipsis-end');
+  }
+
+  items.push(totalPages);
+  return items;
+}
+
 export function GamesTable({
   games,
   totalVisibleText,
@@ -40,7 +67,7 @@ export function GamesTable({
   totalPages,
   onPageChange,
 }: GamesTableProps) {
-  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
+  const paginationItems = buildPaginationItems(currentPage, totalPages);
 
   return (
     <Card>
@@ -130,7 +157,7 @@ export function GamesTable({
               textAlign: { xs: 'right', sm: 'left' },
             }}
           >
-            Página {currentPage} de {totalPages}
+            Página {currentPage.toLocaleString('es-ES')} de {totalPages.toLocaleString('es-ES')}
           </Typography>
         </Stack>
 
@@ -314,20 +341,38 @@ export function GamesTable({
             Anterior
           </Button>
 
-          {pageNumbers.map((page) => {
-            const isCurrent = page === currentPage;
+          {paginationItems.map((item) => {
+            if (typeof item !== 'number') {
+              return (
+                <Typography
+                  key={item}
+                  component="span"
+                  aria-hidden="true"
+                  sx={{
+                    px: 0.5,
+                    color: 'text.secondary',
+                    fontSize: '0.8rem',
+                    userSelect: 'none',
+                  }}
+                >
+                  …
+                </Typography>
+              );
+            }
+
+            const isCurrent = item === currentPage;
             return (
               <Button
-                key={page}
+                key={item}
                 size="small"
                 variant={isCurrent ? 'contained' : 'outlined'}
                 color={isCurrent ? 'secondary' : 'inherit'}
                 aria-current={isCurrent ? 'page' : undefined}
-                onClick={() => onPageChange(page)}
+                onClick={() => onPageChange(item)}
                 sx={{
                   minWidth: { xs: 28, sm: 32 },
                   height: { xs: 28, sm: 32 },
-                  px: 0.75,
+                  px: 0.85,
                   fontSize: { xs: '0.74rem', sm: '0.78rem' },
                   fontVariantNumeric: 'tabular-nums',
                   ...(isCurrent
@@ -342,7 +387,7 @@ export function GamesTable({
                       }),
                 }}
               >
-                {page}
+                {item.toLocaleString('es-ES')}
               </Button>
             );
           })}

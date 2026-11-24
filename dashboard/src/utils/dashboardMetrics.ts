@@ -1,14 +1,15 @@
 import {
+  DEFAULT_MAX_YEAR,
+  DEFAULT_MIN_YEAR,
   GENRE_LABELS,
-  GENRE_SHARE_WEIGHT,
-  MAX_YEAR,
-  MIN_YEAR,
-} from '../data/mockSteamData';
+  PRIMARY_GENRES,
+} from '../constants/dashboardConfig';
 import type {
   GenreFilter,
   GenreOwnerItem,
   KpiItemData,
   PricePlaytimePoint,
+  PrimaryGenre,
   SteamGame,
   YearRange,
   YearlyReleasePoint,
@@ -29,12 +30,37 @@ const MONTHS_ES = [
   'dic',
 ] as const;
 
+const PRIMARY_GENRE_SET = new Set<string>(PRIMARY_GENRES);
+
 export function getReleaseYear(releaseDate: string | null): number | null {
   if (!releaseDate || releaseDate.length < 4) {
     return null;
   }
   const year = Number(releaseDate.slice(0, 4));
   return Number.isNaN(year) ? null : year;
+}
+
+export function computeYearBounds(games: SteamGame[]): { min: number; max: number } {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (const game of games) {
+    const year = getReleaseYear(game.releaseDate);
+    if (year !== null && year >= 1990 && year <= 2030) {
+      if (year < min) {
+        min = year;
+      }
+      if (year > max) {
+        max = year;
+      }
+    }
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
+    return { min: DEFAULT_MIN_YEAR, max: DEFAULT_MAX_YEAR };
+  }
+
+  return { min, max };
 }
 
 export function formatReleaseDateEs(releaseDate: string | null): string {
@@ -56,6 +82,23 @@ export function formatReleaseDateEs(releaseDate: string | null): string {
   return `${day} ${monthLabel} ${year}`;
 }
 
+export function parseOwnersMidpoint(owners: string | null): number {
+  if (!owners) {
+    return 0;
+  }
+  const parts = owners.split('-');
+  if (parts.length !== 2) {
+    const single = Number(owners.trim().replaceAll(',', ''));
+    return Number.isNaN(single) ? 0 : single;
+  }
+  const low = Number(parts[0].trim().replaceAll(',', ''));
+  const high = Number(parts[1].trim().replaceAll(',', ''));
+  if (Number.isNaN(low) || Number.isNaN(high)) {
+    return 0;
+  }
+  return (low + high) / 2;
+}
+
 export function formatOwnersRange(owners: string | null): string {
   if (!owners) {
     return 'Sin datos';
@@ -67,6 +110,14 @@ export function formatOwnersRange(owners: string | null): string {
       return Number.isNaN(numeric) ? part.trim() : numeric.toLocaleString('es-ES');
     })
     .join(' - ');
+}
+
+export function formatCompactOwners(ownersK: number): string {
+  if (ownersK >= 1000) {
+    const millions = ownersK / 1000;
+    return `${millions.toFixed(1).replace('.', ',')}M`;
+  }
+  return `${ownersK.toLocaleString('es-ES')}k`;
 }
 
 export function formatPriceUsd(price: number | null): string {
@@ -128,64 +179,95 @@ export function paginateGames(
   };
 }
 
-export function computeKpiCards(
-  selectedGenre: GenreFilter,
-  yearRange: YearRange,
-  filteredGames: SteamGame[],
-): KpiItemData[] {
-  const isDefaultWindow =
-    selectedGenre === 'Todos' &&
-    yearRange.start === MIN_YEAR &&
-    yearRange.end === MAX_YEAR;
+function normalizeTrendBars(values: number[], fallback: number[]): number[] {
+  if (values.length === 0) {
+    return fallback;
+  }
+  const sliced = values.slice(-7);
+  const maxVal = Math.max(...sliced);
+  if (maxVal <= 0) {
+    return fallback;
+  }
+  while (sliced.length < 7) {
+    sliced.unshift(sliced[0] ?? 0);
+  }
+  return sliced.map((val) => Math.max(18, Math.min(100, Math.round((val / maxVal) * 100))));
+}
 
-  const totalSpan = MAX_YEAR - MIN_YEAR;
-  const activeSpan = Math.max(1, yearRange.end - yearRange.start);
-  const spanRatio = activeSpan / totalSpan;
+export function computeKpiCards(filteredGames: SteamGame[]): KpiItemData[] {
+  let totalPositive = 0;
+  let totalNegative = 0;
+  let priceSum = 0;
+  let pricedCount = 0;
+  let peakCcu = 0;
 
-  let approvalRate = 81.4;
-  let averagePrice = 8.45;
-  let peakCcu = 1010000;
+  const byYear = new Map<
+    number,
+    { pos: number; neg: number; priceSum: number; pricedCount: number; maxCcu: number }
+  >();
 
-  if (!isDefaultWindow) {
-    const genreWeight =
-      selectedGenre === 'Todos' ? 1 : GENRE_SHARE_WEIGHT[selectedGenre];
+  for (const game of filteredGames) {
+    const pos = game.positive ?? 0;
+    const neg = game.negative ?? 0;
+    totalPositive += pos;
+    totalNegative += neg;
 
-    const totalPositive = filteredGames.reduce(
-      (sum, game) => sum + (game.positive ?? 0),
-      0,
-    );
-    const totalNegative = filteredGames.reduce(
-      (sum, game) => sum + (game.negative ?? 0),
-      0,
-    );
-    const totalReviews = totalPositive + totalNegative;
-
-    if (totalReviews > 0) {
-      approvalRate = Math.min(98.5, Math.max(60, (totalPositive / totalReviews) * 100));
-    } else {
-      approvalRate = Math.max(70, 81.4 - (1 - spanRatio) * 4.5);
+    if (game.price !== null) {
+      priceSum += game.price;
+      pricedCount += 1;
     }
 
-    const pricedGames = filteredGames.filter((game) => game.price !== null);
-    if (pricedGames.length > 0) {
-      const sumPrice = pricedGames.reduce((sum, game) => sum + (game.price ?? 0), 0);
-      averagePrice = sumPrice / pricedGames.length;
-    } else {
-      averagePrice = Math.max(2.5, 8.45 * (0.85 + genreWeight * 0.4));
+    const ccu = game.ccu ?? 0;
+    if (ccu > peakCcu) {
+      peakCcu = ccu;
     }
 
-    peakCcu = Math.max(
-      12500,
-      Math.round(1010000 * (0.45 + spanRatio * 0.55) * (selectedGenre === 'Todos' ? 1 : 0.4 + genreWeight)),
-    );
+    const year = getReleaseYear(game.releaseDate);
+    if (year !== null) {
+      const bucket = byYear.get(year) ?? {
+        pos: 0,
+        neg: 0,
+        priceSum: 0,
+        pricedCount: 0,
+        maxCcu: 0,
+      };
+      bucket.pos += pos;
+      bucket.neg += neg;
+      if (game.price !== null) {
+        bucket.priceSum += game.price;
+        bucket.pricedCount += 1;
+      }
+      if (ccu > bucket.maxCcu) {
+        bucket.maxCcu = ccu;
+      }
+      byYear.set(year, bucket);
+    }
   }
 
-  const approvalFormatted = `${approvalRate.toFixed(1).replace('.', ',')}%`;
-  const priceFormatted = `$${averagePrice.toFixed(2).replace('.', ',')}`;
-  const ccuFormatted = peakCcu.toLocaleString('es-ES');
+  const totalReviews = totalPositive + totalNegative;
+  const approvalRate = totalReviews > 0 ? (totalPositive / totalReviews) * 100 : 0;
+  const averagePrice = pricedCount > 0 ? priceSum / pricedCount : 0;
 
-  const scaleBar = (bars: number[], factor: number) =>
-    bars.map((height) => Math.max(18, Math.min(100, Math.round(height * factor))));
+  const sortedYears = Array.from(byYear.entries()).sort((a, b) => a[0] - b[0]);
+
+  const approvalSeries = sortedYears
+    .map(([, bucket]) => {
+      const total = bucket.pos + bucket.neg;
+      return total > 0 ? (bucket.pos / total) * 100 : 0;
+    })
+    .filter((v) => v > 0);
+
+  const priceSeries = sortedYears
+    .map(([, bucket]) => (bucket.pricedCount > 0 ? bucket.priceSum / bucket.pricedCount : 0))
+    .filter((v) => v > 0);
+
+  const ccuSeries = sortedYears.map(([, bucket]) => bucket.maxCcu);
+
+  const approvalFormatted =
+    totalReviews > 0 ? `${approvalRate.toFixed(1).replace('.', ',')}%` : 'N/D';
+  const priceFormatted =
+    pricedCount > 0 ? `$${averagePrice.toFixed(2).replace('.', ',')}` : 'N/D';
+  const ccuFormatted = peakCcu.toLocaleString('es-ES');
 
   return [
     {
@@ -194,7 +276,7 @@ export function computeKpiCards(
       value: approvalFormatted,
       badgeText: 'Positiva',
       variant: 'positive',
-      trendBars: scaleBar([38, 52, 46, 68, 60, 84, 78], isDefaultWindow ? 1 : 0.92 + spanRatio * 0.12),
+      trendBars: normalizeTrendBars(approvalSeries, [38, 52, 46, 68, 60, 84, 78]),
     },
     {
       id: 'avg-price',
@@ -202,7 +284,7 @@ export function computeKpiCards(
       value: priceFormatted,
       badgeText: 'USD',
       variant: 'neutral',
-      trendBars: scaleBar([42, 65, 55, 76, 48, 86, 62], isDefaultWindow ? 1 : 0.85 + Math.min(averagePrice / 25, 0.3)),
+      trendBars: normalizeTrendBars(priceSeries, [42, 65, 55, 76, 48, 86, 62]),
     },
     {
       id: 'peak-ccu',
@@ -210,60 +292,104 @@ export function computeKpiCards(
       value: ccuFormatted,
       badgeText: 'En vivo',
       variant: 'live',
-      trendBars: scaleBar([30, 48, 42, 62, 74, 88, 96], isDefaultWindow ? 1 : 0.7 + spanRatio * 0.3),
+      trendBars: normalizeTrendBars(ccuSeries, [30, 48, 42, 62, 74, 88, 96]),
     },
   ];
 }
 
-export function filterYearlyReleases(
-  series: YearlyReleasePoint[],
-  selectedGenre: GenreFilter,
-  yearRange: YearRange,
-): YearlyReleasePoint[] {
-  const inRange = series.filter(
-    (point) => point.year >= yearRange.start && point.year <= yearRange.end,
-  );
-  const source = inRange.length >= 2 ? inRange : series;
+export function computeYearlyReleases(filteredGames: SteamGame[]): YearlyReleasePoint[] {
+  const counts = new Map<number, number>();
 
-  if (selectedGenre === 'Todos') {
-    return source;
+  for (const game of filteredGames) {
+    const year = getReleaseYear(game.releaseDate);
+    if (year !== null) {
+      counts.set(year, (counts.get(year) ?? 0) + 1);
+    }
   }
-  const weight = GENRE_SHARE_WEIGHT[selectedGenre];
-  return source.map((point) => ({
-    year: point.year,
-    releases: Math.max(15, Math.round(point.releases * weight)),
-  }));
+
+  return Array.from(counts.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, releases]) => ({ year, releases }));
 }
 
-export function filterScatterPoints(
-  points: PricePlaytimePoint[],
-  selectedGenre: GenreFilter,
-  yearRange: YearRange,
+export function computeScatterPoints(
+  filteredGames: SteamGame[],
+  maxPoints = 40,
 ): PricePlaytimePoint[] {
-  return points.filter((point) => {
-    const matchesGenre =
-      selectedGenre === 'Todos' || point.genre === selectedGenre;
-    const matchesYear =
-      point.year >= yearRange.start && point.year <= yearRange.end;
-    return matchesGenre && matchesYear;
-  });
+  const candidates: PricePlaytimePoint[] = [];
+
+  for (const game of filteredGames) {
+    const price = game.price;
+    const playtime = game.averagePlaytime;
+    const year = getReleaseYear(game.releaseDate);
+
+    if (
+      price === null ||
+      playtime === null ||
+      year === null ||
+      price <= 0 ||
+      price > 60 ||
+      playtime <= 0 ||
+      playtime > 1200
+    ) {
+      continue;
+    }
+
+    const matchedGenre = game.genres.find((genre) => PRIMARY_GENRE_SET.has(genre));
+    const primaryGenre: PrimaryGenre = (matchedGenre as PrimaryGenre | undefined) ?? 'Indie';
+
+    candidates.push({
+      id: String(game.appId),
+      name: game.name ?? `App ${game.appId}`,
+      price,
+      averagePlaytime: playtime,
+      genre: primaryGenre,
+      year,
+    });
+  }
+
+  if (candidates.length <= maxPoints) {
+    return candidates;
+  }
+
+  // Muestreo determinista repartido por precio para mantener visibilidad en todo el rango
+  candidates.sort((a, b) => a.price - b.price || a.averagePlaytime - b.averagePlaytime);
+  const sampled: PricePlaytimePoint[] = [];
+  const step = (candidates.length - 1) / (maxPoints - 1);
+
+  for (let index = 0; index < maxPoints; index += 1) {
+    sampled.push(candidates[Math.round(index * step)]);
+  }
+
+  return sampled;
 }
 
-export function computeGenreOwners(
-  baseItems: GenreOwnerItem[],
-  yearRange: YearRange,
-): GenreOwnerItem[] {
-  const ratio = Math.max(
-    0.25,
-    (yearRange.end - yearRange.start) / (MAX_YEAR - MIN_YEAR),
-  );
-  if (ratio >= 0.99) {
-    return baseItems;
+export function computeGenreOwners(gamesInYearRange: SteamGame[]): GenreOwnerItem[] {
+  const totals: Record<PrimaryGenre, number> = {
+    Action: 0,
+    Indie: 0,
+    Adventure: 0,
+    RPG: 0,
+    Strategy: 0,
+  };
+
+  for (const game of gamesInYearRange) {
+    const midpoint = parseOwnersMidpoint(game.owners);
+    if (midpoint <= 0) {
+      continue;
+    }
+    for (const genre of PRIMARY_GENRES) {
+      if (game.genres.includes(genre)) {
+        totals[genre] += midpoint;
+      }
+    }
   }
-  return baseItems.map((item) => ({
-    ...item,
-    ownersK: Math.max(2, Math.round(item.ownersK * (0.35 + ratio * 0.65))),
-  }));
+
+  return PRIMARY_GENRES.map((key) => ({
+    key,
+    label: GENRE_LABELS[key] ?? key,
+    ownersK: Math.round(totals[key] / 1000),
+  })).sort((a, b) => b.ownersK - a.ownersK);
 }
 
 export function exportGamesToCsv(games: SteamGame[]): void {
