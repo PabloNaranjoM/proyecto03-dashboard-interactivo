@@ -19,6 +19,9 @@ Luego abrir en el navegador la dirección que aparece en la terminal (normalment
 - `npm run lint`: analiza el código con `oxlint` para detectar posibles errores, malas prácticas o problemas con hooks de React.
 - `npm run build`: valida tipos con TypeScript (`tsc -b`) y genera el bundle de producción en `dist/`.
 - `npm run preview`: levanta una vista previa local del build de producción.
+- `npm run deploy`: genera el build y lo publica en GitHub Pages (rama `gh-pages`).
+
+Sitio publicado: https://pablonaranjom.github.io/proyecto03-dashboard-interactivo/
 
 ## Arquitectura del dashboard
 
