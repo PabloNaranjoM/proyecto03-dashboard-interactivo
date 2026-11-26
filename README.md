@@ -1,9 +1,9 @@
 # proyecto03-dashboard-interactivo
-Dashboard web interactivo desarrollado con React y TypeScript para el monitoreo de métricas en tiempo real, aplicando buenas prácticas de programación y herramientas modernas del ecosistema frontend.
+Dashboard web interactivo (**Steam Nexus**) desarrollado con React, TypeScript, Material UI (`@mui/material` y `@mui/x-charts`) y Firebase Realtime Database para explorar métricas y tendencias del catálogo de videojuegos de Steam.
 
 ## Cómo ejecutar el dashboard
 
-Se necesita Node.js 20.19 o superior.
+Se necesita Node.js 20.19 o superior y conexión a internet para consultar los datos almacenados en Firebase Realtime Database.
 
 ```bash
 cd dashboard
@@ -11,9 +11,36 @@ npm install
 npm run dev
 ```
 
-Luego abrir en el navegador la dirección que aparece en la terminal (normalmente http://localhost:5173).
+Luego abrir en el navegador la dirección que aparece en la terminal (normalmente `http://localhost:5173`).
 
-Para generar la versión de producción se usa `npm run build`, y con `npm run preview` se puede revisar ese build.
+### Comandos útiles (dentro de `dashboard/`)
+
+- `npm run dev`: inicia el servidor local de desarrollo con Vite.
+- `npm run lint`: analiza el código con `oxlint` para detectar posibles errores, malas prácticas o problemas con hooks de React.
+- `npm run build`: valida tipos con TypeScript (`tsc -b`) y genera el bundle de producción en `dist/`.
+- `npm run preview`: levanta una vista previa local del build de producción.
+
+## Arquitectura del dashboard
+
+```text
+dashboard/src/
+├── firebase/     # Inicialización del SDK web de Firebase y instancia de Realtime Database
+├── services/     # Consultas asíncronas a /games y normalización de registros
+├── hooks/        # Hook personalizado (useSteamGames) con useEffect y useState (datos, carga y error)
+├── components/   # Interfaz modular y responsiva (layout, filtros, KPIs, gráficos y tabla)
+├── utils/        # Cálculo de KPIs, series temporales, dispersión, ranking por género y exportación CSV
+├── constants/    # Constantes de configuración y etiquetas de géneros
+├── theme/        # Tema global de Material UI (tipografía Inter y paleta Steam Nexus)
+└── types/        # Interfaces TypeScript alineadas a datos/games.json
+```
+
+## Conexión con Firebase Realtime Database
+
+El dashboard consume los registros reales almacenados bajo el nodo `/games` del proyecto `data-repository-p03` en Firebase Realtime Database mediante la API modular (`firebase/app` y `firebase/database`):
+
+- **Inicialización:** `dashboard/src/firebase/firebase.ts` configura `initializeApp` y exporta `database = getDatabase(app)` con `databaseURL` explícito.
+- **Acceso a datos:** `dashboard/src/services/gamesService.ts` consulta `/games` con `ref`, `query`, `limitToFirst` y `get`, normalizando los campos `null` y listas vacías que Firebase omite al serializar. Por defecto recupera **5 000 registros** (`DEFAULT_GAMES_LIMIT = 5000`) para mantener tiempos de carga rápidos y cuidar la cuota gratuita; cambiar ese valor a `null` permite consultar los 125 855 registros completos.
+- **Estado y ciclo de vida:** `dashboard/src/hooks/useSteamGames.ts` ejecuta la lectura al montar la vista mediante `useEffect` (con cancelación al desmontar) y administra con `useState` los estados de datos (`games`), carga (`loading`) y error (`error`).
 
 ## Transformación de datos CSV a JSON
 
@@ -24,7 +51,7 @@ El CSV completo está comprimido en `datos/games[original].rar` porque pesa unos
 | --- | --- |
 | `datos/games[original].rar` | CSV original completo (125 855 juegos) |
 | `datos/games - muestra.csv` | Muestra pequeña del CSV |
-| `datos/games.json` | JSON generado, listo para cargar en Firebase |
+| `datos/games.json` | JSON generado y cargado en Firebase Realtime Database |
 | `scripts/transformar_csv_a_json.py` | Lee el CSV, limpia los datos y genera el JSON |
 | `scripts/validar_json.py` | Revisa la estructura, los tipos y la cantidad de registros del JSON |
 
